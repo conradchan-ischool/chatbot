@@ -94,12 +94,13 @@ def show_clinical_trials(json_list):
     for idx, ct in enumerate(json_list):
             
             # Show brief title if available, otherwise show official title
+            nctId = find_in_json(ct,"nctId")[0]
             briefTitle_list = find_in_json(ct, "briefTitle")
             officialTitle_list = find_in_json(ct, "officialTitle")
             if briefTitle_list:
-                expander_heading = briefTitle_list[0]
+                expander_heading = nctId + " - " + briefTitle_list[0]
             else:
-                expander_heading = officialTitle_list[0]
+                expander_heading = nctId + " - " + officialTitle_list[0]
             
             with st.expander(expander_heading):
                 # Show either detailed description of brief summary
@@ -119,9 +120,43 @@ def show_clinical_trials(json_list):
                     st.write(eligibilityCriteria_list[0])
                 
                 # Show link to clinicaltrials.gov
-                nctId = find_in_json(ct,"nctId")[0]
                 url = f"https://clinicaltrials.gov/study/{nctId}"
                 st.markdown("[See more details on ClinicalTrials.gov website](%s)" % url)
+
+
+def format_clinical_trials_prompt(json_list):
+    """
+    Format a prompt for the clinical trials.
+
+    Args:
+        json_list (list of jsons): List of the clinical trials as jsons
+    """
+    prompt = "The user is eligible for the following clinical trials.  The NCT ID is the \
+        unique identifier of the clinical trial.\n"
+    for idx, ct in enumerate(json_list):
+        nctId = find_in_json(ct,"nctId")[0]
+        prompt = prompt + "Clinical Trial NCT ID: " + nctId
+        briefTitle_list = find_in_json(ct, "briefTitle")
+        if briefTitle_list:
+            prompt = prompt + "Brief Title: " + briefTitle_list[0] + "\n"
+        officialTitle_list = find_in_json(ct, "officialTitle")
+        if officialTitle_list:
+            prompt = prompt + "Official Title: " + officialTitle_list[0] + "\n"
+        
+        # Show either detailed description of brief summary
+        detailedDescription_list = find_in_json(ct, "detailedDescription")
+        if detailedDescription_list:
+            prompt = prompt + "Detailed Description: " + detailedDescription_list[0] + "\n"
+        briefSummary_list = find_in_json(ct, "briefSummary")
+        if briefSummary_list:
+            prompt = prompt + "briefSummary: " + briefSummary_list[0] + "\n"
+            
+        # Show eligibility criteria
+        eligibilityCriteria_list = find_in_json(ct, "eligibilityCriteria")
+        if eligibilityCriteria_list:
+            prompt = prompt + "Eligibility Criteria for Clinical Trial: " + eligibilityCriteria_list[0] + "\n"
+    
+    return prompt
 
 
 load_conditions()  # Load list of medical conditions user can search from
@@ -151,24 +186,39 @@ else:
         st.session_state.messages = []
     
     if "ct_results" not in st.session_state:
-        st.session_state.ct_results = []
+        st.session_state.ct_results = []  # json list of clinical trials
+        st.session_state.ct_prompt = ""  # prompt for the clinical trials
     
     # ----- NEW -----
-    with st.form("input"):
+    
+    with st.sidebar:
+        reset_button = st.button(label="Start new search")
+    
+    
+    # In the sidebar, show a button to setup a new search
+    if reset_button:
+        st.session_state.ct_results = []
+        st.session_state.messages = []
+        
+    # with st.form("input"):
+    with st.sidebar:
         st.title("Search for Clinical Trials")
         st.write("Enter your information below.")   
         age = st.number_input("Age", 0, 100, 0, 1)
         sex = st.radio("Sex", ["Female", "Male"])
-        # condition = st.text_input("Medical Condition")
-        condition = st_searchbox(search_function=find_conditions,
-                                    label="Medical Condition",
-                                    key="condition_searchbox")
+        condition = st.selectbox("Medical Condition", ["Amblyopia", "Retinitis Pigmentosa"])
+        # Note: Value of condition is not retained if use Searchbox
+        #       The prompt that asks if user has any questions about condition doesn't work
+        # condition = st_searchbox(search_function=find_conditions,
+        #                          label="Medical Condition",
+        #                          key="condition_searchbox")
         conditionText = st.text_area("Additional Information")
         acceptsHealthy = st.checkbox("Accepts healthy volunteers", value=False)
         location = st.text_input("Location")
         distance = st.number_input("Miles you are able to travel", 0, 10000, 0, 1)
 
-        submit_button = st.form_submit_button(label="Find clinical trials")
+        # submit_button = st.form_submit_button(label="Find clinical trials")
+        submit_button = st.button(label="Find clinical trials")
         
         if submit_button:
             # Create a dictionary for the patient profile
@@ -183,11 +233,23 @@ else:
             
             st.session_state.ct_results = find_trials(patient)
             
-        # Display results
-        if len(st.session_state.ct_results):
-            st.write("We found ", len(st.session_state.ct_results), "clinical trials you might qualify for.")
-            show_clinical_trials(st.session_state.ct_results)
-            
+    # Display results
+    if len(st.session_state.ct_results):
+        st.write("We found ", len(st.session_state.ct_results), "clinical trials you might qualify for.")
+        show_clinical_trials(st.session_state.ct_results)
+        
+        if not st.session_state.messages:
+            ct_prompt = "Do you have any questions about clinical trials or " + condition + "?"
+            st.session_state.messages.append({"role": "assistant", "content": ct_prompt})
+    # if len(st.session_state.ct_results):
+    #     # Add button for each clinical trial to sidebar
+    #     button_names = []
+    #     with st.sidebar:
+    #         for idx, ct in enumerate(st.session_state.ct_results):
+    #             button_names.append(find_in_json(ct, "nctId")[0])
+    #             st.button(button_names[idx])
+    
+    
     # ----- NEW -----
 
     # Display the existing chat messages via `st.chat_message`.
@@ -197,13 +259,13 @@ else:
         
     # Create a chat input field to allow the user to enter a message. This will display
     # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+    if prompt := st.chat_input("Type your questions here"):
 
         # Store and display the current prompt.
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-
+        
         # Generate a response using the OpenAI API.
         stream = client.chat.completions.create(
             model="gpt-3.5-turbo",
