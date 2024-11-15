@@ -2,3 +2,6 @@ streamlit
 openai
 streamlit-searchbox
 fuzzywuzzy
+boto3
+geopy
+pandas

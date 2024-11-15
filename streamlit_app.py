@@ -5,6 +5,9 @@ import json
 # from difflib import get_close_matches
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
+import boto3
+from geopy.distance import geodesic
+import pandas as pd
 
 def find_in_json(data, key):
     """
@@ -59,6 +62,82 @@ def find_conditions(searchTerm: str) -> list[any]:
     # return get_close_matches(searchTerm, CONDITIONS_LIST)
     return process.extract(searchTerm, CONDITIONS_LIST)
 
+def create_location_index(client,index_name):
+
+    get_indexes = client.list_place_indexes()
+
+    entries = get_indexes.get('Entries')
+
+    index_list = [entry.get('IndexName') for entry in entries]
+
+    if index_name in index_list:
+        pass
+    else:
+        client.create_place_index(IndexName=index_name,DataSource='Esri')
+
+def covert_zip_to_geo(zip_code):
+    
+    # set AWS profile based on credentials file
+    session = boto3.Session(profile_name='210_access_key')
+
+    # start client
+    client = session.client(service_name='location',region_name='us-west-2')
+
+    # define index name
+    index_name = 'ZipIndex'
+
+    # create location index if needed
+    create_location_index(client,index_name)
+
+    # Perform the geocoding request
+    response = client.search_place_index_for_text(
+        IndexName=index_name,
+        Text=zip_code,
+        MaxResults=1
+    )
+
+    results = response.get('Results')
+
+    if results:
+        for result in results:
+            place = result.get('Place')
+            if place:
+                geo = place.get('Geometry')
+                if geo:
+                    point = geo.get('Point')
+
+    longitude, latitude = point
+
+    zip_geo = (latitude,longitude)
+
+    return zip_geo
+
+def trials_within_distance(zip_code,max_miles,trials):
+
+    #  convert zip to geocode
+    zip_geo = covert_zip_to_geo(zip_code)
+
+    # assuming we have our trials in a dataframe, explode to get all locations for all trials
+    locations = trials[['nctid','location_geo_point']].explode('location_geo_point')
+
+    # remove trials without location data since we cannot compare to zip code
+    locations_clean = locations[locations.location_geo_point.notnull()]
+
+    # format the coordinates
+    locations_clean.location_geo_point = locations_clean.location_geo_point.apply(lambda x : (x.get('lat'),x.get('lon')))
+
+    # calculate the distance to each trial in miles
+    locations_clean['distance'] = locations_clean.location_geo_point.apply(lambda x: geodesic(zip_geo, x).miles)
+
+    # get the trials within the distance
+    acceptable_trials = locations_clean[locations_clean.distance <= max_miles]
+
+    # get the unique trial ids
+    acceptable_trial_ids = acceptable_trials.nctid.unique().tolist()
+
+    within_distance = trials[trials['nctid'].isin(acceptable_trial_ids)]
+
+    return within_distance
 
 def call_retrieve_trials_API(patient):
     """
@@ -66,6 +145,13 @@ def call_retrieve_trials_API(patient):
     For now, this will read a json file of clinical trials.
     """
     clinical_trials_file = open("clinical_trials_sample.json")
+
+    trials = pd.read_json(path_or_buf='validation_clinical_trials.json')
+
+    zip_code = patient.get('location')
+    max_miles = patient.get('distance')
+
+    within_distance = trials_within_distance(zip_code,max_miles,trials)
 
     return json.load(clinical_trials_file)
 
@@ -158,7 +244,6 @@ def format_clinical_trials_prompt(json_list):
     
     return prompt
 
-
 load_conditions()  # Load list of medical conditions user can search from
 
 # Show title and description.
@@ -214,7 +299,7 @@ else:
         #                          key="condition_searchbox")
         conditionText = st.text_area("Additional Information")
         acceptsHealthy = st.checkbox("Accepts healthy volunteers", value=False)
-        location = st.text_input("Location")
+        location = st.text_input(label="Zip Code",value='94720',max_chars=5)
         distance = st.number_input("Miles you are able to travel", 0, 10000, 0, 1)
 
         # submit_button = st.form_submit_button(label="Find clinical trials")
