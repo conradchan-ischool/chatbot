@@ -286,8 +286,8 @@ else:
         st.session_state.ct_results = []
         st.session_state.messages = []
         
-    with st.form("input"):
-    # with st.sidebar:
+    # with st.form("input"):
+    with st.sidebar:
         st.title("Search for Clinical Trials")
         st.write("Enter your information below.")   
         age = st.number_input("Age", 0, 100, 0, 1)
@@ -303,8 +303,8 @@ else:
         location = st.text_input(label="Zip Code",value='94720',max_chars=5)
         distance = st.number_input("Miles you are able to travel", 0, 10000, 0, 1)
 
-        submit_button = st.form_submit_button(label="Find clinical trials")
-        # submit_button = st.button(label="Find clinical trials")
+        # submit_button = st.form_submit_button(label="Find clinical trials")
+        submit_button = st.button(label="Find clinical trials")
         
         if submit_button:
             # Create a dictionary for the patient profile
