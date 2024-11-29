@@ -5,3 +5,4 @@ fuzzywuzzy
 boto3
 geopy
 pandas
+pillow
